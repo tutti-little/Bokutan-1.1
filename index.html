@@ -132,7 +132,7 @@ body.ed .hb{outline:2px dashed #fff;cursor:grab}
 @media (max-width:480px){.cds{grid-template-columns:repeat(2,1fr)}}
 .wic{object-fit:cover;border-radius:8px}.wi .wic{width:60px;height:46px}.wi{width:60px!important}.sl span .wic{width:46px;height:32px}.rc i .wic{width:70px;height:46px}.cds.one .rc i .wic{width:170px;height:112px}.chip .wic{width:22px;height:16px;vertical-align:middle}.th.w .wic{width:112px;height:76px}.rate .wic{width:26px;height:18px;vertical-align:middle}
 .ki{width:26px;height:26px;object-fit:contain;vertical-align:middle}
-#dmg{position:fixed;inset:0;pointer-events:none;z-index:25;background:radial-gradient(ellipse at center,rgba(255,0,0,0) 25%,rgba(215,0,0,.9));opacity:0;transition:opacity .3s}
+#dmg{position:fixed;inset:0;pointer-events:none;z-index:25;background:radial-gradient(ellipse at center,rgba(255,0,0,.14) 0%,rgba(235,0,0,.4) 40%,rgba(215,0,0,.9) 100%);opacity:0;transition:opacity .3s}
 #hm{position:fixed;left:50%;top:50%;width:36px;height:36px;margin:-18px;pointer-events:none;z-index:26;opacity:0;transition:opacity .1s;background:linear-gradient(45deg,transparent 45%,#fff 45%,#fff 55%,transparent 55%),linear-gradient(-45deg,transparent 45%,#fff 45%,#fff 55%,transparent 55%)}
 #kills{display:none;background:rgba(10,14,24,.72);border:1px solid var(--bd);border-radius:10px;padding:6px 12px;font-weight:800}
 /* ===== デザイン刷新（豪華ボタン・パネル・演出） ===== */
@@ -1445,7 +1445,15 @@ function tvDraw(t){const g=tvC.getContext('2d'),sc=Math.floor(t/8)%3;g.clearRect
  tvTex.needsUpdate=true}
 tvDraw(0);
 // ===================== プレイヤーの体力・死亡・復活 =====================
-function hurt(n,src){if(st.dead||invT>0)return;if(window.__ctr>0){window.__ctr=0;if(src&&!src.isP)hurtBot(src,999,true);banner('カウンター！','#ffd44a',900);sfx('ok');return}lastBy=src||null;setHP(HP.cur-n);shake(.12);dmgEl.style.opacity=.55;setTimeout(()=>{if(!st.dead)dmgEl.style.opacity=0},150);sfx('hurt');puff(new THREE.Vector3(st.pos.x,st.pos.y+1.2,st.pos.z),0xff3030,8,3,.4,.25,5);popup('-'+Math.round(n),new THREE.Vector3(st.pos.x,st.pos.y+1.6,st.pos.z),'#ff4a4a',24);if(HP.cur<=0)die()}
+// 被ダメージの赤い縁取り：濃さはダメージ量で決まり（100以上で最大＝最も濃い赤）、約2秒表示（最後の0.6秒で薄れる）。
+// 連続で受けたら、その時点の濃さと今回の濃さの濃い方を採用して2秒を数え直す
+let dmgT1=0,dmgT2=0;
+function dmgFlash(n){if(st.dead||!(n>0))return;
+ const cur=parseFloat(getComputedStyle(dmgEl).opacity)||0,v=Math.max(cur,Math.min(1,Math.max(.1,n/100)));
+ clearTimeout(dmgT1);clearTimeout(dmgT2);dmgEl.style.transition='none';dmgEl.style.opacity=v;void dmgEl.offsetWidth;
+ dmgT1=setTimeout(()=>{if(st.dead)return;dmgEl.style.transition='opacity .6s linear';dmgEl.style.opacity=0},1400);
+ dmgT2=setTimeout(()=>{dmgEl.style.transition=''},2100)}
+function hurt(n,src){if(st.dead||invT>0)return;if(window.__ctr>0){window.__ctr=0;if(src&&!src.isP)hurtBot(src,999,true);banner('カウンター！','#ffd44a',900);sfx('ok');return}lastBy=src||null;setHP(HP.cur-n);shake(.12);dmgFlash(n);sfx('hurt');puff(new THREE.Vector3(st.pos.x,st.pos.y+1.2,st.pos.z),0xff3030,8,3,.4,.25,5);popup('-'+Math.round(n),new THREE.Vector3(st.pos.x,st.pos.y+1.6,st.pos.z),'#ff4a4a',24);if(HP.cur<=0)die()}
 function die(){const kb=lastBy;if(st.fp&&MT.on){st.fp=false;fpUI()}window.__deathUI&&window.__deathUI(kb);killLog(kb?kb.name:pname(),kb?(kb.team==='B'?'#ff8a8a':'#7fc4ff'):'#7fc4ff',pname(),'#7fc4ff',!kb);st.dead=true;st.lock=true;deadT=0;st.slide=0;key.fire=0;ads=false;CHARS[cur].mat.color.setHex(0xff2a2a);dmgEl.style.opacity=.8;shake(.3);puff(new THREE.Vector3(st.pos.x,st.pos.y+1,st.pos.z),0xff2a2a,34,6,.9,.35,4,.4);ring(st.pos,0xff3030,3);banner(MT.on?'ダウン…':'やられた…','#ff4a4a',1700);setMsg(MT.on?'次のラウンドを待とう':'3秒後に復活します');sfx('die')}
 function revive(){window.__deathUI&&window.__deathUI(null);setHP(HP.max);CHARS[cur].mat.color.setHex(0xffffff);body.rotation.z=0;st.dead=false;st.lock=false;dmgEl.style.opacity=0}
 function respawn(){const[x,z]=freeSpot(8);st.pos.set(x,0,z);st.vy=0;revive();invT=2.5;FX.position.set(x,0,z);st.summon=.001;curT.set(x,1.2,z);sfx('resp');banner('復活！','#7fffb0',1200)}
@@ -1529,7 +1537,9 @@ function beginRound(){MT.round++;MT.state='count';MT.t=3.6;MT.cn=0;
  let ia=1,ib=0;for(const u of charUnits()){if(!u.active)continue;const s=u.team==='A'?sa[ia++]:sbb[ib++];spawnBot(u,s.x,s.z);u.face=s.face;u.m.color.setHex(0xffffff)}
  for(const k in WS){AMMO[k].mag=WS[k].max;AMMO[k].res=WS[k].res}fireT=0;rl=0;window.GRN=3;window.POIS=5;clearGas();if(window.heldW&&WS[window.heldW]){AK.mag=AK.max;AK.res=WS[window.heldW].res}ammoUI();
  updSB();setMsg('ラウンド '+MT.round+'　5点先取')}
-function endRound(w){MT.state='between';MT.t=3.4;MT.sc[w==='A'?0:1]++;updSB();st.lock=true;banner(w==='A'?'ROUND WIN!':'ROUND LOSE',w==='A'?'#7fffb0':'#ff6a6a',2000);sfx(w==='A'?'f2':'die');if(w==='A')puff(new THREE.Vector3(st.pos.x,1.5,st.pos.z),0xffe070,40,7,1.1,.35,2,.6)}
+// ラウンド終了時：スタミナと武器のクールタイム（攻撃間隔・笛・刀/鎌の特殊）を全回復
+function recoverRoundEnd(){st.sta=5;st.exh=false;runUI();fireT=0;fluteCd=0;if(window.__recoverCd)window.__recoverCd();updBars()}
+function endRound(w){MT.state='between';MT.t=3.4;MT.sc[w==='A'?0:1]++;updSB();st.lock=true;recoverRoundEnd();banner(w==='A'?'ROUND WIN!':'ROUND LOSE',w==='A'?'#7fffb0':'#ff6a6a',2000);sfx(w==='A'?'f2':'die');if(w==='A')puff(new THREE.Vector3(st.pos.x,1.5,st.pos.z),0xffe070,40,7,1.1,.35,2,.6)}
 function endMatch(){MT.state='over';const win=MT.sc[0]>=5;st.lock=true;
  const o=$('#mres');o.style.display='block';o.innerHTML='<div class="res"><h2 style="color:'+(win?'#ffd34d':'#ff7a7a')+'">'+(win?'勝利！':'敗北…')+'</h2><div class="s">'+MT.sc[0]+' － '+MT.sc[1]+'</div><div class="bt y" id="mres-ok">ホームへ戻る</div></div>';sfx(win?'f3':'die');
  $('#mres-ok').onclick=()=>{sfx('ok');o.style.display='none';leaveMatch();if(st.on)summon()}}
@@ -1785,7 +1795,7 @@ const du=document.createElement('div');du.id='dui';document.body.appendChild(du)
 window.__deathUI=kb=>{if(!kb||!kb.name||!MT.on){du.style.display='none';return}const c=CHARS[kb.ci]||CHARS[0],w=WD[kb.wp||'ar'];du.innerHTML='<div class="ic" style="background:'+c.thumb+'"></div><div><small>倒された相手</small><br><b>'+esc(kb.name)+'</b> ・ '+esc(w?w.n:'')+'</div>';du.style.display='flex'};
 window.__specT=()=>MT.on?(charUnits().find(u=>u.active&&!u.dead&&u.team===MY.team)||null):null;
 // 刀・鎌の特殊ボタン
-const act=document.querySelector('.act');const sp=document.createElement('div');sp.className='b round';sp.id='bsp';sp.innerHTML='<b>⚔</b>特殊';sp.style.display='none';act.appendChild(sp);let spCd=0;window.__ctr=0;
+const act=document.querySelector('.act');const sp=document.createElement('div');sp.className='b round';sp.id='bsp';sp.innerHTML='<b>⚔</b>特殊';sp.style.display='none';act.appendChild(sp);let spCd=0;window.__ctr=0;window.__recoverCd=()=>{spCd=0;window.__ctr=0};
 sp.addEventListener('pointerdown',e=>{e.preventDefault();const w=window.heldW;if(st.dead||spCd>0)return;
  if(w==='ka'){window.__ctr=1.2;spCd=2.5;setMsg('刀：構え！ 攻撃を受けるとカウンター（1.2秒）');banner('構え！','#9fe8ff',700);sfx('swing')}
  else if(w==='sc'||(w==='gb'&&AK.mag<=0)){spCd=1.5;sfx('swing');let n=0;const fx=-Math.sin(st.face),fz=Math.cos(st.face),iv=setInterval(()=>{st.pos.x+=fx*.9;st.pos.z+=fz*.9;collide(st.pos);if(++n>=9){clearInterval(iv);if(fireT<=0)melee('sc')}},18)}});
@@ -2412,7 +2422,7 @@ const onRound=m=>{if(m.n===MT.round&&(MT.state==='count'||MT.state==='play'))ret
  for(const[id,u]of ON.units){const t=ON.pl.find(p=>p.id===id);resetUnit(u);if(t){const s=slotOf(t.team,id);u.x=s.x;u.z=s.z;u.face=s.face}}
  for(const k in WS){AMMO[k].mag=WS[k].max;AMMO[k].res=WS[k].res}fireT=0;rl=0;window.GRN=3;window.POIS=5;clearGas();if(window.heldW&&WS[window.heldW]){AK.mag=AK.max;AK.res=WS[window.heldW].res}ammoUI();
  updSB();setMsg('ラウンド '+MT.round+'　5点先取')};
-const onRend=m=>{if(!ON.active)return;MT.state='between';MT.t=3.4;ON.score=m.sc.slice();MT.sc=[ON.score[ON.myTeam],ON.score[1-ON.myTeam]];updSB();st.lock=true;ON.sentNext=false;clearTimeout(ON.nxT);{const nx=m.nx||(sNow()+3400),dl=Math.min(6000,Math.max(0,nx-sNow()));ON.nxT=setTimeout(()=>{try{if(amHost())advanceRound(nx+3500);else startNext(nx+3500)}catch(e){}},dl)}
+const onRend=m=>{if(!ON.active)return;MT.state='between';MT.t=3.4;ON.score=m.sc.slice();MT.sc=[ON.score[ON.myTeam],ON.score[1-ON.myTeam]];updSB();st.lock=true;recoverRoundEnd();ON.sentNext=false;clearTimeout(ON.nxT);{const nx=m.nx||(sNow()+3400),dl=Math.min(6000,Math.max(0,nx-sNow()));ON.nxT=setTimeout(()=>{try{if(amHost())advanceRound(nx+3500);else startNext(nx+3500)}catch(e){}},dl)}
  const win=m.w===ON.myTeam,draw=m.w<0;banner(draw?'DRAW':win?'ROUND WIN!':'ROUND LOSE',draw?'#ffd34d':win?'#7fffb0':'#ff6a6a',2000);sfx(win?'f2':'die');
  if(win)puff(new THREE.Vector3(st.pos.x,1.5,st.pos.z),0xffe070,40,7,1.1,.35,2,.6)};
 const showRes=(title,col,sub,rematch)=>{const o=$('#mres');o.style.display='block';
