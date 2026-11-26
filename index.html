@@ -793,8 +793,9 @@ const RIGA=(()=>{
    if(!s.ok){s.ok=1;s.tm=now;s.x=b.x;s.z=b.z}
    else if(dt>.004){const dtc=Math.min(dt,.1),v=Math.hypot(b.x-s.x,b.z-s.z)/dtc;s.v+=(v-s.v)*Math.min(1,dtc*10);s.x=b.x;s.z=b.z;s.tm=now;
     const mv=s.v>.8,rn=s.v>4.4;if(mv)s.ph+=dtc*(rn?14:9);
-    step(s,dtc,mv,rn,b.g.position.y>.12,!!b.dead)}
-   apply(b.mesh,b.ci,k,s,b._hd)}}})();
+    const sld=!!b.sl&&!b.dead&&b.g.position.y<=.12;s.sl+=((sld?1:0)-s.sl)*Math.min(1,dtc*14);step(s,dtc,mv,rn,b.g.position.y>.12,!!b.dead||sld)}
+   if(s.sl>.001&&!OFF&&PR.meshes(b.mesh).length){const dr=s.sl*HOLD.drop(b.ci);b.g.position.y-=dr;if(b.wm)b.wm.position.y-=dr}   // 自分と同じ沈み込み
+    apply(b.mesh,b.ci,k,s,b._hd)}}})();
 window.RIG=RIGA;
 
 /* ===== HOLD: 武器の持ち方 =====
@@ -2196,7 +2197,13 @@ const sendL=(L,o,fast)=>{const f=L.fast;
 const sendTo=(s,id,o,fast)=>{const pid=pidOf(s,id);if(!pid)return;const L=s.links.get(pid);
  if(L&&sendL(L,o,fast))return;
  if(s.R&&s.R.host!==s.me){const H=s.links.get(pidOf(s,s.R.host));if(H&&H!==L)sendL(H,{t:'rl',to:id,m:o})}};
-const bcast=(s,o,fast)=>{if(!s.R)return;for(const p of s.R.pl)if(p.id!==s.me)sendTo(s,p.id,o,fast)};
+const bcast=(s,o,fast)=>{if(!s.R)return;const via=[];let H=null;
+ for(const p of s.R.pl){if(p.id===s.me||!p.pid)continue;const L=s.links.get(p.pid);
+  if(L&&sendL(L,o,fast))continue;
+  if(s.R.host===s.me)continue;
+  if(!H)H=s.links.get(pidOf(s,s.R.host));
+  if(H&&H!==L)via.push(p.id)}
+ if(via.length)sendL(H,{t:'rl',to:via.length===1?via[0]:via,m:o})};   // 直結できなかった宛先は、ホストへ1通にまとめて渡す（ホストが各宛先へ展開）
 const pushRoom=(s,skip)=>{if(!s.R)return;const m=snap(s);for(const p of s.R.pl)if(p.id!==s.me&&p.id!==skip)sendTo(s,p.id,m);emit(s,snap(s))};
 const ctl=(s,m)=>{bcast(s,m);later(s,()=>onMsg(m))};        // ホストの進行メッセージ：全員＋自分
 
@@ -2213,7 +2220,7 @@ const onData=(s,L,d,viaFast)=>{if(s.dead)return;
   case'ping':sendL(L,{t:'pong',c:d.c,T:performance.now()},viaFast);return;
   case'pong':return safe(()=>onMsg({t:'pong',c:d.c,T:d.T,from:lid(s,L)}));
   case'bt':case'hit':case'ev':return safe(()=>onMsg(d));
-  case'rl':if(!isHost(s))return;return d.to===s.me?onData(s,L,d.m,false):sendTo(s,d.to,d.m);
+  case'rl':{if(!isHost(s))return;for(const id of(Array.isArray(d.to)?d.to:[d.to])){if(id===s.me)onData(s,L,d.m,false);else sendTo(s,id,d.m)}return}
   case'join':return hostJoin(s,L,d);
   case'team':{if(!isHost(s))return;const id=lid(s,L);if(id)setTeam(s,id,d.team);return}
   case'welcome':case'err':if(s.joinW)s.joinW(d);return;
@@ -2395,7 +2402,7 @@ $('#or-copy').onclick=async()=>{if(!ON.room)return;const u=location.origin+locat
 
 // ---------- 試合のはじまり ----------
 const takeUnit=()=>{let u=bots.find(b=>b.kind==='char'&&!b.ghost&&!b.active&&!b.net);if(!u){u=mkUnit('char');bots.push(u)}return u};
-const resetUnit=u=>{u.x=u.z=u.y=0;u.hp=100;u.dead=0;u.hit=0;u.fx='';u.exT=0;u.mesh.rotation.z=0;u.mesh.scale.y=1;u.m.color.setHex(0xffffff);u.buf=[];u.wp=null;u.hitT=0;u.fl0=0;u.pk=null;u.smi=0;u.vx=0;u.vz=1;u.face=0};
+const resetUnit=u=>{u.x=u.z=u.y=0;u.hp=100;u.dead=0;u.hit=0;u.fx='';u.exT=0;u.mesh.rotation.z=0;u.mesh.scale.y=1;u.m.color.setHex(0xffffff);u.buf=[];u.wp=null;u.hitT=0;u.fl0=0;u.pk=null;u.sl=0;u.smi=0;u.vx=0;u.vz=1;u.face=0};
 const freeUnits=()=>{for(const u of ON.units.values()){u.net=false;u.active=false;u.g.visible=false;u.pid=0}ON.units.clear()};
 const slotOf=(team,id)=>{const mem=ON.pl.filter(p=>p.team===team).sort((a,b)=>a.id-b.id),n=mem.length,idx=Math.max(0,mem.findIndex(p=>p.id===id));
  const o=[...Array(n).keys()].sort((p,q)=>Math.abs(p-(n-1)/2)-Math.abs(q-(n-1)/2)),k=o[idx],B=team===0?ON.map.a:ON.map.b;
@@ -2448,29 +2455,31 @@ const netSend=dt=>{ON.sendT-=dt;if(ON.sendT>0)return;
  {const tn=performance.now();if(tn-(ON.rlT||0)>1000){ON.rlT=tn;try{ON.rl=!!Net.relayed()}catch(e){ON.rl=false}}}   // 中継経由かを1秒ごとに確認
  ON.sendT=Math.max(ON.sendT+1/(ON.rl?POS_HZ_RL:POS_HZ),-.05);
  if(MT.state==='setup'||ON.lost)return;
- const a=[r2(st.pos.x),r2(st.pos.y),r2(st.pos.z),r2(st.face),HP.cur|0,window.heldW||'',st.dead?1:0,MT.round],L=ON.last,t=performance.now();
- if(L&&t-ON.hb<(ON.rl?500:250)&&a.every((v,i)=>v===L[i])){ON.sup=true;return}       // 止まっている間は4Hzの生存通知だけ（動いている間は毎回送る）
+ const a=[r2(st.pos.x),r2(st.pos.y),r2(st.pos.z),r2(st.face),HP.cur|0,window.heldW||'',st.dead?1:0,MT.round,(st.slide>0&&st.pos.y<=st.gy+.06&&!st.dead)?1:0],L=ON.last,t=performance.now();if(ON.shSeq){a.push(ON.shSeq);if(ON.shRep>0&&ON.shE)a.push(ON.shE[0],ON.shE[1],ON.shE[2])}const frc=ON.shRep>0;if(frc)ON.shRep--;   // 末尾=スライディング中
+ if(!frc&&L&&t-ON.hb<(ON.rl?500:250)&&a.every((v,i)=>v===L[i])){ON.sup=true;return}       // 止まっている間は4Hzの生存通知だけ（動いている間は毎回送る）
  {const iv=1000/(ON.rl?POS_HZ_RL:POS_HZ);if(ON.sup&&L&&t-ON.hb>iv*1.5)send({t:'s',h:iv,p:L})}   // 止まっていた間は通知を省いているので、動き出す直前まで静止していた点を足して、受信側が静止点から動き出しまでをゆっくり補間しないようにする
   ON.sup=false;ON.last=a;ON.hb=t;send({t:'s',c:r1(t),p:a})};
 const onBt=m=>{if(!ON.active)return;const sn=sNow(),pn=performance.now();
- for(const e of m.s){const[id,T,x,y,z,f,hp,wp,fl,r]=e;if(id===ON.id)continue;const u=ON.units.get(id);if(!u)continue;
+ for(const e of m.s){const[id,T,x,y,z,f,hp,wp,fl,r,sl,sq,ex,ey,ez]=e;if(id===ON.id)continue;const u=ON.units.get(id);if(!u)continue;
   const lag=(sn-T)/1000;ON.lag+=(lag-ON.lag)*.05;ON.dev+=(Math.abs(lag-ON.lag)-ON.dev)*.05;   // 到着の遅れとゆらぎ→表示遅延に反映
   u.wp=wp||null;if(!u.dead&&(pn-u.hitT>400||hp<u.hp))u.hp=hp;
+   if(sq!==undefined){if(u.shSeq===undefined||sq<u.shSeq-1000)u.shSeq=sq;else if(sq>u.shSeq){u.shSeq=sq;playShot(u,wp||'',ex===undefined?null:[ex,ey,ez])}}   // 発砲カウンタが進んだ＝撃った（重複・順不同は無視）
   if(r!==MT.round)continue;
+   if(u.pk&&!u.dead&&hp>0&&!fl&&pn-u.pk.t>(ON.rtt||150)*1.5+200){pkUndo(u);u.hp=hp}   // 撃破と表示したのに相手がまだ生きている：表示を戻す
   if((fl||hp<=0)&&MT.state==='play'&&!u.dead){if(!u.fl0)u.fl0=pn;else if(pn-u.fl0>600){u.dead=.001;u.hp=0;u.hit=.15;u.fl0=0}}else if(!fl&&hp>0)u.fl0=0;   // 『倒れた』通知が届かなくても全滅判定できるように
                                     // 前後のラウンドのパケットは捨てる
   const b=u.buf;if(b.length&&T<=b[b.length-1].T)continue;
-  b.push({T,x,y,z,f});if(b.length>40)b.shift()}};
-const samp=u=>{const b=u.buf,n=b.length;if(!n)return;const rt=sNow()-ON.delay*1000,set=s=>{u.x=s.x;u.y=s.y;u.z=s.z;u.face=s.f};
+  {const g=pn-(u.rxT||pn);u.rxT=pn;if(g>(u.rxG||0))u.rxG=g}u.rxN=(u.rxN||0)+1;b.push({T,x,y,z,f,sl:sl|0});if(b.length>40)b.shift()}};
+const samp=u=>{const b=u.buf,n=b.length;if(!n)return;const rt=sNow()-ON.delay*1000,set=s=>{u.x=s.x;u.y=s.y;u.z=s.z;u.face=s.f;u.sl=s.sl|0};
  if(rt<=b[0].T)return set(b[0]);
  const L=b[n-1];
  if(rt>=L.T){const p=n>1?b[n-2]:null,dt=Math.min(rt-L.T,400)/1000;let vx=0,vz=0;     // 足りない時は、速度を保ったまま徐々に減速して先読み
   if(p&&L.T>p.T&&L.T-p.T<300&&Math.hypot(L.x-p.x,L.z-p.z)<6){const k=1000/(L.T-p.T);vx=(L.x-p.x)*k;vz=(L.z-p.z)*k}
-  const e=.15*(1-Math.exp(-dt/.15));return set({x:L.x+vx*e,y:L.y,z:L.z+vz*e,f:L.f})}
+  const e=.15*(1-Math.exp(-dt/.15));return set({x:L.x+vx*e,y:L.y,z:L.z+vz*e,f:L.f,sl:L.sl})}
  let i=1;while(b[i].T<rt)i++;const a=b[i-1],c=b[i],k=(rt-a.T)/(c.T-a.T);
  if(i>2)b.splice(0,i-2);
  if(Math.hypot(c.x-a.x,c.z-a.z)>6)return set(k<.5?a:c);          // ワープ（ラウンド切替など）は補間しない
- set({x:a.x+(c.x-a.x)*k,y:a.y+(c.y-a.y)*k,z:a.z+(c.z-a.z)*k,f:a.f+ang(a.f,c.f)*k})};
+ set({x:a.x+(c.x-a.x)*k,y:a.y+(c.y-a.y)*k,z:a.z+(c.z-a.z)*k,f:a.f+ang(a.f,c.f)*k,sl:k<.5?a.sl:c.sl})};
 const updNet=(u,dt)=>{if(u.dead){u.dead+=dt;place(u);return}u.hit=Math.max(0,u.hit-dt);samp(u);
  if(!u.smi||Math.hypot(u.x-u.smx,u.z-u.smz)>4){u.smx=u.x;u.smy=u.y;u.smz=u.z;u.smi=1}
  else{const a=1-Math.exp(-dt/(ON.rl?.07:.035));u.smx+=(u.x-u.smx)*a;u.smy+=(u.y-u.smy)*a;u.smz+=(u.z-u.smz)*a;u.x=u.smx;u.y=u.smy;u.z=u.smz}
@@ -2478,19 +2487,24 @@ const updNet=(u,dt)=>{if(u.dead){u.dead+=dt;place(u);return}u.hit=Math.max(0,u.h
 
 // ---------- 戦闘（撃った側が判定→当たった側に反映） ----------
 const dbgD=()=>ON.dbg||(ON.dbg={s:0,r:0,x:0,hs:0,why:''});
+const rejHit=m=>{if(m&&m.f)send({t:'ev',k:'rej',to:m.f})};   // 『その弾では倒れていない』を撃った側へ知らせる（先行表示の撃破を即取り消すため）
 const onHit=m=>{const D=dbgD();
  if(!ON.active){D.x++;D.why='inactive';return}
  if(st.dead){D.x++;D.why='dead';return}
  const left=(MT.goAt-sNow())/1000;                     // 開始の時計ズレで、相手が先に『開始』になった直後の弾も受ける
- if(MT.state!=='play'&&!(MT.state==='count'&&left<1.2)){D.x++;D.why='st:'+MT.state;return}
- if(invT>0){D.x++;D.why='inv';return}
- D.r++;hurt(m.dm,ON.units.get(m.f)||undefined)};
+ if(MT.state!=='play'&&!(MT.state==='count'&&left<1.2)){D.x++;D.why='st:'+MT.state;rejHit(m);return}
+ if(invT>0){D.x++;D.why='inv';rejHit(m);return}
+ {const hp0=HP.cur;D.r++;hurt(m.dm,ON.units.get(m.f)||undefined);if(!st.dead&&m.dm>=hp0)rejHit(m)}};
 const colOf=u=>u.team==='B'?'#ff8a8a':'#7fc4ff';
 const fxBoom=(p,r)=>{const d=Math.hypot(st.pos.x-p.x,st.pos.z-p.z);sfx('boom',Math.max(.1,1-d/60));
  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:ct,color:0xff9030,blending:THREE.AdditiveBlending,transparent:true,depthWrite:false}));s.position.copy(p);SCN.add(s);fxs.push({s,t:0,r});
  ring(p,0xffb040,r*1.6);ring(p,0xffffff,r);puff(p,0xffa030,30,8,.7,.4,5,.5);puff(p,0x666666,16,3,1.3,1.1,-1.5,.9,true);shake(Math.max(0,.32-d*.02))};
+const playShot=(u,w,e)=>{HOLD.aim(u._hd);const d=Math.hypot(u.x-st.pos.x,u.z-st.pos.z),sx=u.x-Math.sin(u.face)*.5,sz=u.z+Math.cos(u.face)*.5,sy=(u.y||0)+1.3;
+ sfx(w==='sn'||w==='gb'?'snp':w==='sg'?'shot':w==='rp'?'rpg':'gun',Math.max(.08,.5-d/80));puff(new THREE.Vector3(sx,sy,sz),0xffc060,3,1,.12,.3);
+ if(e)tracer(new THREE.Vector3(e[0],e[1],e[2]),sx,sy,sz,u.team==='B'?0xff3b3b:0xffffff)};
 const onEv=m=>{const u=ON.units.get(m.f);if(!ON.active||!u)return;if(m.k==='sw'&&m.p){const d=Math.hypot(st.pos.x-m.p[0],st.pos.z-m.p[2]);sfx('swing',Math.max(.1,.7-d/50));puff(new THREE.Vector3(m.p[0],m.p[1]+1.1,m.p[2]),m.w==='bt'?0xffd34d:0xffffff,m.w==='bt'?12:6,3,.3,.2,4);return}
- if(m.k==='died'){if(u.dead)return;const pk=u.pk;u.pk=null;u.dead=.001;u.hp=0;u.fx='';u.hit=.15;
+ if(m.k==='rej'){if(m.to===ON.id&&u.pk)pkUndo(u);return}
+  if(m.k==='died'){if(u.dead)return;const pk=u.pk;u.pk=null;u.dead=.001;u.hp=0;u.fx='';u.hit=.15;
   const pos=new THREE.Vector3(u.x,(u.y||0)+1,u.z),kr=m.by===ON.id?null:ON.units.get(m.by);
   if(m.by===ON.id){if(!pk){kills++;updKills();sfx('kill');banner('撃破！ '+u.name,'#ffd34d',900);shake(.04)}const wk=S.wk[window.heldW]||0;u.fx=wk>=150?'dia':wk>=25?'gold':'';addKill(window.heldW);if(!pk)killLog(pname(),'#7fc4ff',u.name,colOf(u))}
   else{if(pk){kills=Math.max(0,kills-1);updKills()}if(kr&&kr!==u)killLog(kr.name,colOf(kr),u.name,colOf(u));else killLog(u.name,colOf(u),'',colOf(u),true)}
@@ -2531,7 +2545,7 @@ const startNext=go=>{if(!ON.active||ON.lost||MT.state!=='between'||Math.max(ON.s
 setInterval(()=>{try{let e=document.getElementById('ndbg');
  if(!ON.active){if(e)e.style.display='none';return}
  if(!e){e=document.createElement('div');e.id='ndbg';e.style.cssText='position:fixed;left:6px;bottom:6px;z-index:99999;font:11px/1.3 monospace;color:#9f9;background:rgba(0,0,0,.45);padding:2px 5px;border-radius:4px;pointer-events:none;white-space:nowrap';document.body.appendChild(e)}
- const D=dbgD();e.style.display='block';e.textContent=(amHost()?'HOST ':'GUEST ')+MT.state+' R'+MT.round+' 生存'+aliveCt('A')+'-'+aliveCt('B')+' | 送'+D.s+' 受'+D.r+' 無視'+D.x+(D.why?'('+D.why+')':'')+' 送れず'+D.hs}catch(_){}},1000);
+ const D=dbgD();let rx='',gp=0;for(const u of ON.units.values()){if(!u.net)continue;rx+=(rx?'/':'')+(u.rxN||0);u.rxN=0;gp=Math.max(gp,u.rxG||0);u.rxG=0}e.style.display='block';e.textContent=(amHost()?'HOST ':'GUEST ')+MT.state+' R'+MT.round+' 生存'+aliveCt('A')+'-'+aliveCt('B')+' | 送'+D.s+' 受'+D.r+' 無視'+D.x+(D.why?'('+D.why+')':'')+' 送れず'+D.hs+' | 位置受信 '+rx+'Hz 最大間隔'+Math.round(gp)+'ms'}catch(_){}},1000);
 
 // ---------- ホストの自動復帰（止まったら自力で進める。描画ループとは別のタイマー） ----------
 (()=>{let key='',t0=performance.now();
@@ -2575,7 +2589,7 @@ const _hb=hurtBot;hurtBot=function(b,dm,head,by){
  send({t:'hit',to:b.pid,dm:Math.round(dm),hd:head?1:0});
  if(dm>=900){const rn=MT.round,pid=b.pid;                                  // 一撃必殺(バット等)は、届かなかった時のために再送（相手が既に倒れていれば無害）
   for(const dl of [250,700])setTimeout(()=>{if(ON.active&&MT.state==='play'&&MT.round===rn&&!b.dead&&b.net&&b.pid===pid)send({t:'hit',to:pid,dm:999,hd:0})},dl)}
- const lethal=dm>=900||dm>=b.hp;
+ const lethal=dm>=900||dm>=b.hp+1;
  b.hp=Math.max(1,b.hp-dm);b.hit=.15;b.hitT=performance.now();if(lethal)predKill(b);                 // 手応えは即表示（本当のHPは相手から届く）。倒せる一撃は撃破も即表示
  const hp=new THREE.Vector3(b.x,(b.y||0)+(head?1.6:1.1),b.z);marker(head);sfx('hit');puff(hp,head?0xffd34d:0xff5a40,head?12:7,3,.35,.2,6);
  popup(dm>=900?'HEADSHOT!':(head?'HEAD ':'')+Math.round(Math.min(dm,100)),hp,head?'#ffd34d':'#fff',head?28:20);if(head)shake(.02)};
@@ -2587,7 +2601,7 @@ rayBots=function(o,d,maxT){let best=null;const S4=[[1.58,.28],[1.3,.38],[.9,.4],
  return best};
 const _pf=puff;puff=function(p,col,n){if(ON.active){if(PS.length>60)return;arguments[2]=Math.max(1,Math.ceil(n*.5))}return _pf.apply(null,arguments)};
 const _tr=tracer;tracer=function(end,sx,sy,sz,col){{const tn=performance.now();if(sx!==undefined&&tn-(ON.trT||0)<50)return;if(sx!==undefined)ON.trT=tn}_tr.apply(null,arguments);
- if(ON.active&&sx===undefined){const t=performance.now();if(t-ON.shotT<(ON.rl?130:25))return;ON.shotT=t;send({t:'ev',k:'sh',w:window.heldW||'',e:[r1(end.x),r1(end.y),r1(end.z)]})}};
+ if(ON.active&&sx===undefined){const t=performance.now();ON.shSeq=(ON.shSeq|0)+1;ON.shE=[r1(end.x),r1(end.y),r1(end.z)];ON.shRep=2}};   // 発砲は位置パケットに相乗り（累積カウンタ+着弾点。2回続けて載せて取りこぼしに備える）
 const _ml=melee;melee=function(id){_ml(id);if(ON.active)send({t:'ev',k:'sw',w:id,p:[r1(st.pos.x),r1(st.pos.y),r1(st.pos.z)]})};
 const _la=launch;launch=function(k,geo,col,sp,up){_la(k,geo,col,sp,up);if(ON.active){const q=PJ[PJ.length-1];if(q)send({t:'ev',k:'pj',pk:k,p:[r1(q.m.position.x),r1(q.m.position.y),r1(q.m.position.z)],v:[r1(q.v.x),r1(q.v.y),r1(q.v.z)]})}};
 const _sg=spawnGas;spawnGas=function(p,vis){_sg(p,vis);if(ON.active&&!vis)send({t:'ev',k:'gas',p:[r1(p.x),r1(p.y),r1(p.z)]})};
